@@ -6,191 +6,484 @@ Author:
 Date: 
 	9.18.2017
 Last revised:
-	10.1.2017
+	10.18.2017
+Revision history:
+	10.1.2017 null
+	10.18.2017 add em-related functionalities 
 """
 
 import os
 import re
 
+###**--- UTILITY FUNCTION ---**###
 def get_sample_names(project):
 	"""Get the sample names for IP and control in local folder
 	"""
 	IP_SAMPLE_LIST = []
 	FQ_CMD = ''
-	for fn in os.listdir('reads/{project}/ip/'.format(project=project)):
+	for fn in os.listdir('projects/{project}/reads/ip/'.format(project=project)):
 		IP_SAMPLE_LIST.append(re.search(r"(.+)\.fastq|\.gz", fn).group(1))
 		if fn.endswith('gz'):
 			FQ_CMD = '--readFilesCommand zcat'
 	CON_SAMPLE_LIST = []
-	for fn in os.listdir('reads/{project}/con/'.format(project=project)):
+	for fn in os.listdir('projects/{project}/reads/con/'.format(project=project)):
 		CON_SAMPLE_LIST.append(re.search(r"(.+)\.fastq|\.gz", fn).group(1))
 	if len(IP_SAMPLE_LIST)==0 or len(CON_SAMPLE_LIST)==0:
 		raise Exception('either ip or ctrl sample has no raw reads found.')
 	return IP_SAMPLE_LIST, CON_SAMPLE_LIST, FQ_CMD
 
 
-GENOME = 'mm10'
-PROJECT_NAME = os.environ.get("PROJECT_NAME")
-IP_SAMPLE_LIST, CON_SAMPLE_LIST, FQ_CMD = get_sample_names(PROJECT_NAME)
-IP_FQ_PATTERN = "reads/{project}/ip/{ip_sample}.fastq" if FQ_CMD=='' else "reads/{project}/ip/{ip_sample}.fastq.gz"
-CON_FQ_PATTERN = "reads/{project}/con/{con_sample}.fastq" if FQ_CMD=='' else "reads/{project}/con/{con_sample}.fastq.gz"
+###**--- IN-FILE CONFIG ---**###
+	
+PROJECT = os.environ.get("PROJECT")
+CONFIG_FP = os.path.join("projects", PROJECT, 'config', 'config.yaml')
+
+configfile: 
+	CONFIG_FP
+
+
+PAIRED_END = False if 'paired_end' not in config else config['paired_end']
+
+FQ_PATTERN = [ 'projects/{project}/reads/{sample_type}/{sample_name}_1.fastq.gz', 'projects/{project}/reads/{sample_type}/{sample_name}_2.fastq.gz'] \
+	if PAIRED_END else \
+	['projects/{project}/reads/{sample_type}/{sample_name}.fastq.gz']	
+
+GENOME = config['genome']
+FQ_CMD = '--readFilesCommand zcat'
+
+if PAIRED_END:
+	IP_FQ_PATTERN = ["projects/{project}/reads/ip/{ip_sample}_1.fastq", "projects/{project}/reads/ip/{ip_sample}_2.fastq"] \
+	if FQ_CMD=='' else \
+	["projects/{project}/reads/ip/{ip_sample}_1.fastq.gz", "projects/{project}/reads/ip/{ip_sample}_2.fastq.gz"]
+	CON_FQ_PATTERN = ["projects/{project}/reads/con/{con_sample}_1.fastq", "projects/{project}/reads/con/{con_sample}_2.fastq"] \ 
+	if FQ_CMD=='' else \
+	["projects/{project}/reads/con/{con_sample}_1.fastq.gz", "projects/{project}/reads/con/{con_sample}_2.fastq.gz"]
+else:
+	IP_FQ_PATTERN = "projects/{project}/reads/ip/{ip_sample}.fastq" if FQ_CMD=='' else "projects/{project}/reads/ip/{ip_sample}.fastq.gz"
+	CON_FQ_PATTERN = "projects/{project}/reads/con/{con_sample}.fastq" if FQ_CMD=='' else "projects/{project}/reads/con/{con_sample}.fastq.gz"
+
+SAMPLE_TYPE_DICT = config['sample_type_dict']
+COMPARISON_LIST = config['sample_comparison']
+MAX_TAGS = config['clam']['max_tags']
 
 
 ###**--- SNAKEMAKE FILE ---**###
 
-configfile: "config.yaml"
-
 rule all:
 	input:
-		"archive/{project}.tar.gz".format(project=PROJECT_NAME)
+		"projects/{project}/archive/{project}.tar.gz".format(project=PROJECT)
 				
 
-rule alignment:
+### downloading ###
+
+rule download_sra:
 	input:
-		expand( "star/{project}/ip/{ip_sample}/Aligned.sortedByCoord.out.bam", project=PROJECT_NAME, ip_sample=IP_SAMPLE_LIST ),
-		expand( "star/{project}/con/{con_sample}/Aligned.sortedByCoord.out.bam", project=PROJECT_NAME, con_sample=CON_SAMPLE_LIST )
+		"projects/{project}/config/config.yaml".format(project=PROJECT)
+	output:
+		["projects/{project}/sra/{sample_type}/{sample_name}.sra".format(project=PROJECT, sample_type=SAMPLE_TYPE_DICT[x], sample_name=x)
+			for x in SAMPLE_TYPE_DICT.keys()]
+	params:
+		project=PROJECT,
+		downloader_fn="projects/{project}/config/sra_downloader.sh".format(project=PROJECT),
+		sradir_fn="projects/{project}/config/sra_dir.txt".format(project=PROJECT),
+		outdir="projects/{project}/sra/".format(project=PROJECT)
+	shell:
+		"""
+		#Rscript scripts/geo_downloader/getSRApath.R {params.project} {params.sradir_fn}
+		cat {params.sradir_fn} | python2 scripts/geo_downloader/download_SRA.py {params.project} > {params.downloader_fn}
+		bash {params.downloader_fn}
+		#rm {params.sradir_fn}
+		"""
 
-				
+
+rule dump_sra:
+	input:
+		lambda wildcards:
+			"projects/{project}/sra/{sample_type}/{sample_name}.sra".format(
+				project=PROJECT, 
+				sample_type=SAMPLE_TYPE_DICT[wildcards.sample_name],
+				sample_name=wildcards.sample_name)
+	output:
+		FQ_PATTERN
+	params:
+		outdir="projects/{project}/reads/{sample_type}/"
+	shell:
+		"fastq-dump -O {params.outdir} --gzip --split-3 {input}"
+		
+
+### alignment and preprocessing
+
+# NOTE 2017.10.25: the current STAR rule runs on single-end even if the 
+# data is paired-end. This is because in CLAM realigner, we cannot handle
+# paired-end read yet and two reads with identical ID will cause issues.
+# Will be fixed in the next update.		
 rule star_ip:
 	input:
 		sample=[IP_FQ_PATTERN]
 	output:
-		"star/{project}/ip/{ip_sample}/Aligned.sortedByCoord.out.bam"
+		"projects/{project}/star/ip/{ip_sample}/Aligned.sortedByCoord.out.bam"
 	log:
-		"logs/star/{ip_sample}.log"
+		"projects/{project}/logs/star/{ip_sample}.log"
 	params:
-		prefix="star/{project}/ip/{ip_sample}/",
-		# path to STAR reference genome index
+		prefix="projects/{project}/star/ip/{ip_sample}/",
 		index=config[GENOME]['star_idx'],
-		fq_cmd = FQ_CMD
+		fq_cmd = FQ_CMD,
+		max_hits = 100
 	threads: 4
 	shell:
 		"""
 		STAR --genomeDir {params.index} \
 		--readFilesIn {input.sample[0]}  --outSAMtype BAM SortedByCoordinate \
 		--outFileNamePrefix {params.prefix} \
+		--outFilterMultimapNmax {params.max_hits} \
 		--runThreadN {threads} \
-		{params.fq_cmd}
+		{params.fq_cmd} \
+		--outStd Log >{log}		
 		"""
 
 rule star_con:
 	input:
 		sample=[CON_FQ_PATTERN]
 	output:
-		"star/{project}/con/{con_sample}/Aligned.sortedByCoord.out.bam"
+		"projects/{project}/star/con/{con_sample}/Aligned.sortedByCoord.out.bam"
 	log:
-		"logs/star/{con_sample}.log"
+		"projects/{project}/logs/star/{con_sample}.log"
 	params:
-		prefix="star/{project}/con/{con_sample}/",
+		prefix="projects/{project}/star/con/{con_sample}/",
 		index=config[GENOME]['star_idx'],
-		fq_cmd = FQ_CMD
+		fq_cmd = FQ_CMD,
+		max_hits = 100
 	threads: 4
 	shell:
 		"""
 		STAR --genomeDir {params.index} \
 		--readFilesIn {input.sample[0]}  --outSAMtype BAM SortedByCoordinate \
 		--outFileNamePrefix {params.prefix} \
+		--outFilterMultimapNmax {params.max_hits} \
 		--runThreadN {threads} \
-		{params.fq_cmd}
+		{params.fq_cmd} \
+		--outStd Log >{log}
 		"""
 
 
 rule mapping_stat_ip:
 	input:
-		align="star/{project}/ip/{sample}/Aligned.sortedByCoord.out.bam",
+		align="projects/{project}/star/ip/{sample}/Aligned.sortedByCoord.out.bam",
 	output:
-		"star/{project}/ip/{sample}/mapping_stats.txt"
+		"projects/{project}/star/ip/{sample}/mapping_stats.txt"
 	shell:
 		"python2 scripts/report/mapping_stat.py {input.align} > {output}"
 
 
 rule mapping_stat_con:
 	input:
-		align="star/{project}/con/{sample}/Aligned.sortedByCoord.out.bam",
+		align="projects/{project}/star/con/{sample}/Aligned.sortedByCoord.out.bam",
 	output:
-		"star/{project}/con/{sample}/mapping_stats.txt"
+		"projects/{project}/star/con/{sample}/mapping_stats.txt"
 	shell:
 		"python2 scripts/report/mapping_stat.py {input.align} > {output}"
 
 
 rule clam_prep_ip:
 	input:
-		ip_align="star/{project}/ip/{ip_sample}/Aligned.sortedByCoord.out.bam"
+		ip_align="projects/{project}/star/ip/{ip_sample}/Aligned.sortedByCoord.out.bam"
 	output:
-		"clam/{project}/ip/{ip_sample}/unique.sorted.bam"
+		"projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam"
 	log:
-		"logs/clam/{ip_sample}.log"
+		"projects/{project}/logs/clam/{ip_sample}-prep.log"
 	params:
-		outdir="clam/{project}/ip/{ip_sample}",
-		tagger_method="median"
+		outdir="projects/{project}/clam/ip/{ip_sample}",
+		tagger_method="median",
+		max_tags=MAX_TAGS
 	shell:
-		"CLAM preprocessor -i {input.ip_align} -o {params.outdir} --read-tagger-method {params.tagger_method}"
+		"CLAM preprocessor -i {input.ip_align} -o {params.outdir} --max-tags {params.max_tags} --read-tagger-method {params.tagger_method} >{log} 2>&1"
 		
 
 rule clam_prep_con:		
 	input:
-		con_align="star/{project}/con/{con_sample}/Aligned.sortedByCoord.out.bam"
+		con_align="projects/{project}/star/con/{con_sample}/Aligned.sortedByCoord.out.bam"
 	output:
-		"clam/{project}/con/{con_sample}/unique.sorted.bam"
+		"projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam"
 	log:
-		"logs/clam/{con_sample}.log"
+		"projects/{project}/logs/clam/{con_sample}-prep.log"
 	params:
-		outdir="clam/{project}/con/{con_sample}",
-		tagger_method="median"
+		outdir="projects/{project}/clam/con/{con_sample}",
+		tagger_method="median",
+		max_tags=MAX_TAGS
 	shell:
-		"CLAM preprocessor -i {input.con_align} -o {params.outdir} --read-tagger-method {params.tagger_method}"
+		"CLAM preprocessor -i {input.con_align} -o {params.outdir} --max-tags {params.max_tags} --read-tagger-method {params.tagger_method} >{log} 2>&1"
 
+rule clam_em_ip:
+	input:
+		"projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam"
+	output:
+		"projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam"
+	log:
+		"projects/{project}/logs/clam/{ip_sample}-em.log"
+	params:
+		outdir="projects/{project}/clam/ip/{ip_sample}",
+		max_tags=MAX_TAGS,
+		winsize=100
+	shell:
+		"CLAM realigner -i {input} -o {params.outdir} --winsize {params.winsize} --max-tags {params.max_tags} --unstranded >{log} 2>&1"
 
+rule clam_em_con:
+	input:
+		"projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam"
+	output:
+		"projects/{project}/clam/con/{con_sample}/realigned.sorted.bam"
+	log:
+		"projects/{project}/logs/clam/{con_sample}-em.log"
+	params:
+		outdir="projects/{project}/clam/con/{con_sample}",
+		max_tags=MAX_TAGS,
+		winsize=100
+	shell:
+		"CLAM realigner -i {input} -o {params.outdir} --winsize {params.winsize} --max-tags {params.max_tags} --unstranded >{log} 2>&1"
+			
+
+### peak calling
 
 rule clam_callpeak:
 	input:
-		ip_prep="clam/{project}/ip/{ip_sample}/unique.sorted.bam",
-		con_prep="clam/{project}/con/{con_sample}/unique.sorted.bam"
+		ip_prep="projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam",
+		con_prep="projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam"
 	output:
-		"clam/{project}/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
+		"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
+	log:
+		"projects/{project}/logs/clam/{ip_sample}-{con_sample}-callpeak.log"
 	params:
-		outdir="clam/{project}/peaks-{ip_sample}-{con_sample}",
+		outdir="projects/{project}/clam/peaks-{ip_sample}-{con_sample}",
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
-		qval_cutoff=0.005
+		qval_cutoff=0.005,
+		fold_change='5 50'
 	shell:
 		"""
 		CLAM peakcaller -i {input.ip_prep}  -c {input.con_prep} \
 			-o {params.outdir} --gtf {params.gtf} --unique-only --unstranded --binsize {params.binsize} \
-			--qval-cutoff {params.qval_cutoff}
+			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
 		"""
-		#mv log.CLAM.txt logs/clam/log.{wildcards.ip_sample}.{wildcards.con_sample}.txt
 
+
+rule clam_callpeak_mread:
+	input:		
+		ip_prep=[
+			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else "projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam", 
+			"projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam"],
+		con_prep=[
+			"projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else "projects/{project}/clam/con/{con_sample}/unique.sorted.bam", 
+			"projects/{project}/clam/con/{con_sample}/realigned.sorted.bam"]
+	output:
+		"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
+	log:
+		"projects/{project}/logs/clam/{ip_sample}-{con_sample}-callpeak_mread.log"
+	params:
+		outdir="projects/{project}/clam/peaks-{ip_sample}-{con_sample}",
+		gtf=config[GENOME]['gtf'],
+		binsize=100,
+		qval_cutoff=0.005,
+		fold_change='5 50'
+	shell:
+		"""
+		CLAM peakcaller -i {input.ip_prep}  -c {input.con_prep} \
+			-o {params.outdir} --gtf {params.gtf} --unstranded --binsize {params.binsize} \
+			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
+		"""
+		
+
+rule macs2:
+	input:
+		ip="projects/{project}/star/ip/{ip_sample}/Aligned.sortedByCoord.out.bam",
+		con="projects/{project}/star/con/{con_sample}/Aligned.sortedByCoord.out.bam"
+	output:
+		"projects/{project}/macs2/{ip_sample}-{con_sample}/{ip_sample}-{con_sample}--nomodel_peaks.narrowPeak"
+	log:
+		"projects/{project}/logs/macs2/{ip_sample}-{con_sample}.log"
+	params:
+		genome_size="2.7e9",
+		name_="{ip_sample}-{con_sample}",
+		extsize=50,
+		fold_range="9 30",
+		q_cutoff=0.01,
+		outdir="projects/{project}/macs2/{ip_sample}-{con_sample}"
+	shell:
+		"macs2 callpeak -g {params.genome_size} -t {input.ip} -c {input.con} -n {params.name_}" \
+		"--nomodel -m {params.fold_range} -q {params.q_cutoff} --extsize {params.extsize} --outdir {params.outdir} >{log} 2>&1"
+
+
+rule compare_peaks:
+	input:
+		macs2_peak="projects/{project}/macs2/{ip_sample}-{con_sample}/{ip_sample}-{con_sample}--nomodel_peaks.narrowPeak",
+		clam_upeak="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed",
+		clam_mpeak="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
+	output:
+		clam_rescued_peak="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.rescue.bed",
+		clam_macs2_peak="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.macs2.bed",
+		macs2_clam_peak="projects/{project}/macs2/{ip_sample}-{con_sample}/narrow_peak.clam.bed",
+		plot_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/peak_num.png"
+	params:
+		plot_script="scripts/report/plot_peak_num.R",
+	shell:
+		"""
+		bedtools intersect -v -a {input.clam_mpeak} -b {input.clam_upeak} > {output.clam_rescued_peak}
+		bedtools intersect -a {input.clam_mpeak} -b {input.macs2_peak} > {output.clam_macs2_peak}
+		bedtools intersect -b {input.clam_mpeak} -a {input.macs2_peak} > {output.macs2_clam_peak}
+		Rscript {params.plot_script} {input.clam_mpeak} {input.clam_upeak} {input.macs2_peak} {output.plot_fn}
+		"""
+
+### evaluations
 
 rule homer_motif:
 	input:
-		peak_fn="clam/{project}/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
+		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
 	output:
-		"homer/{project}/{ip_sample}-{con_sample}/homerResults.html"
+		"projects/{project}/homer/{ip_sample}-{con_sample}/clam_unique/homerResults.html"
 	params:
-		outdir="homer/{project}/{ip_sample}-{con_sample}",
-		motif_len='8',
+		outdir="projects/{project}/homer/{ip_sample}-{con_sample}/clam_unique",
+		motif_len='4,5,6,7,8',
+		genome=GENOME,
+		nthread=4,
+		size=100,
+		motif_num=3
+	log:
+		"projects/{project}/logs/homer/log.homer.{ip_sample}-{con_sample}.txt"
+	shell:
+		"findMotifsGenome.pl {input.peak_fn} {params.genome} {params.outdir} "\
+		" -rna -len {params.motif_len} "\
+		"-p {params.nthread} -size {params.size} -S {params.motif_num} >{log} 2>&1"
+
+
+rule topology_dist:
+	input:
+		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
+	output:
+		dist_img="projects/{project}/topology/{ip_sample}-{con_sample}/clam_unique/dist.png"
+	log:
+		"projects/{project}/logs/topology/{ip_sample}-{con_sample}.log"
+	params:
+		outdir="projects/{project}/topology/{ip_sample}-{con_sample}/clam_unique",
+		count_script="scripts/topological_dist/Peak_distribution_on_utr_cds.py",
+		plot_script="scripts/topological_dist/plot.R",
+		genome=GENOME,
+		binnum=50
+	shell:
+		"""
+		python2 {params.count_script} {input} {params.genome} {params.binnum} >{params.outdir}/dist.data 2>{log}
+		Rscript {params.plot_script} {params.outdir}/dist.data {output.dist_img}
+		"""
+
+
+rule repeat_comp:
+	input:
+		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
+	output:
+		"projects/{project}/repeats/{ip_sample}-{con_sample}/clam_unique/dist.png"
+	params:
+		genome=GENOME,
+		outdir="projects/{project}/repeats/{ip_sample}-{con_sample}/clam_unique",
+		count_script="scripts/repeat_composition/RepeatsPie.py",
+		plot_script="scripts/repeat_composition/plot.R"
+	shell:
+		"""
+		python2 {params.count_script} {input.peak_fn} {params.genome} >{params.outdir}/dist.data
+		Rscript {params.plot_script} {params.outdir}/dist.data {output}
+		"""
+
+
+
+rule homer_motif_rescue:
+	input:
+		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.rescue.bed"
+	output:
+		"projects/{project}/homer/{ip_sample}-{con_sample}/clam_rescue/homerResults.html"
+	params:
+		outdir="projects/{project}/homer/{ip_sample}-{con_sample}/clam_rescue",
+		motif_len='4,5,6,7,8',
+		genome=GENOME,
+		nthread=4,
+		size=100,
+		motif_num=3
+	log:
+		"projects/{project}/logs/homer/log.homer.{ip_sample}-{con_sample}.rescue.txt"
+	shell:
+		"findMotifsGenome.pl {input.peak_fn} {params.genome} {params.outdir} "\
+		" -rna -len {params.motif_len} "\
+		"-p {params.nthread} -size {params.size} -S {params.motif_num} >{log} 2>&1"
+
+
+rule topology_dist_rescue:
+	input:
+		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.rescue.bed"
+	output:
+		dist_img="projects/{project}/topology/{ip_sample}-{con_sample}/clam_rescue/dist.png"
+	log:
+		"projects/{project}/logs/topology/{ip_sample}-{con_sample}-rescue.log"
+	params:
+		outdir="projects/{project}/topology/{ip_sample}-{con_sample}/clam_rescue",
+		count_script="scripts/topological_dist/Peak_distribution_on_utr_cds.py",
+		plot_script="scripts/topological_dist/plot.R",
+		genome=GENOME,
+		binnum=20
+	shell:
+		"""
+		python2 {params.count_script} {input} {params.genome} {params.binnum} >{params.outdir}/dist.data 2>{log}
+		Rscript {params.plot_script} {params.outdir}/dist.data {output.dist_img}
+		"""		
+
+
+rule repeat_comp_rescue:
+	input:
+		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.rescue.bed"
+	output:
+		"projects/{project}/repeats/{ip_sample}-{con_sample}/clam_rescue/dist.png"
+	params:
+		genome=GENOME,
+		outdir="projects/{project}/repeats/{ip_sample}-{con_sample}/clam_rescue",
+		count_script="scripts/repeat_composition/RepeatsPie.py",
+		plot_script="scripts/repeat_composition/plot.R"
+	shell:
+		"""
+		python2 {params.count_script} {input.peak_fn} {params.genome} >{params.outdir}/dist.data
+		Rscript {params.plot_script} {params.outdir}/dist.data {output}
+		"""
+
+
+rule homer_motif_macs2:
+	input:
+		peak_fn="projects/{project}/macs2/{ip_sample}-{con_sample}/{ip_sample}-{con_sample}--nomodel_peaks.narrowPeak"
+	output:
+		"projects/{project}/homer/{ip_sample}-{con_sample}/macs2/homerResults.html"
+	params:
+		outdir="projects/{project}/homer/{ip_sample}-{con_sample}/macs2",
+		motif_len=5,
 		genome=GENOME,
 		nthread=4,
 		size=100,
 		motif_num=5
 	log:
-		"logs/homer/log.homer.{ip_sample}-{con_sample}.txt"
+		"projects/{project}/logs/homer/log.homer.{ip_sample}-{con_sample}.macs2.txt"
 	shell:
 		"findMotifsGenome.pl {input.peak_fn} {params.genome} {params.outdir} "\
-		" -rna -len {params.motif_len} "\
-		"-p {params.nthread} -size {params.size} -S {params.motif_num}"
+		"-len {params.motif_len} "\
+		"-p {params.nthread} -size {params.size} -S {params.motif_num} >{log} 2>&1"
 
 
-rule topology_dist:
+rule topology_dist_macs2:
 	input:
-		peak_fn="clam/{project}/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
+		peak_fn="projects/{project}/macs2/{ip_sample}-{con_sample}/{ip_sample}-{con_sample}--nomodel_peaks.narrowPeak"
 	output:
-		dist_img="topology/{project}/{ip_sample}-{con_sample}/dist.png"
+		dist_img="projects/{project}/topology/{ip_sample}-{con_sample}/macs2/dist.png"
 	log:
-		"logs/topology/{ip_sample}-{con_sample}.log"
+		"projects/{project}/logs/topology/{ip_sample}-{con_sample}-macs2.log"
 	params:
-		outdir="topology/{project}/{ip_sample}-{con_sample}",
+		outdir="projects/{project}/topology/{ip_sample}-{con_sample}/macs2",
 		count_script="scripts/topological_dist/Peak_distribution_on_utr_cds.py",
 		plot_script="scripts/topological_dist/plot.R",
 		genome=GENOME
@@ -198,35 +491,97 @@ rule topology_dist:
 		"""
 		python2 {params.count_script} {input} {params.genome} > {params.outdir}/dist.data
 		Rscript {params.plot_script} {params.outdir}/dist.data {output.dist_img}
-		"""
+		"""		
+
+
+
+### generating reports and cleaning up
+
 
 rule report:
 	input:
-		expand("star/{project}/ip/{sample}/mapping_stats.txt", project=PROJECT_NAME, sample=IP_SAMPLE_LIST),
-		expand("star/{project}/con/{sample}/mapping_stats.txt", project=PROJECT_NAME, sample=CON_SAMPLE_LIST),
-		expand( "homer/{project}/{ip_sample}-{con_sample}/homerResults.html", project=PROJECT_NAME, ip_sample=IP_SAMPLE_LIST, con_sample=CON_SAMPLE_LIST ),
-		expand( "topology/{project}/{ip_sample}-{con_sample}/dist.png", project=PROJECT_NAME, ip_sample=IP_SAMPLE_LIST, con_sample=CON_SAMPLE_LIST )
+		[ "projects/{project}/star/ip/{sample}/mapping_stats.txt".format(
+			project=PROJECT, 
+			sample=x[0])
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/star/con/{sample}/mapping_stats.txt".format(
+			project=PROJECT, 
+			sample=x[1])
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/clam/peaks-{ip_sample}-{con_sample}/peak_num.png".format(
+			project=PROJECT, 
+			ip_sample=x[0],
+			con_sample=x[1])
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/homer/{ip_sample}-{con_sample}/clam_unique/homerResults.html".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/topology/{ip_sample}-{con_sample}/clam_unique/dist.png".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/repeats/{ip_sample}-{con_sample}/clam_unique/dist.png".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/homer/{ip_sample}-{con_sample}/clam_rescue/homerResults.html".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/topology/{ip_sample}-{con_sample}/clam_rescue/dist.png".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		],
+		[ "projects/{project}/repeats/{ip_sample}-{con_sample}/clam_rescue/dist.png".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		]
 	output:
-		"reports/report_{project}.pdf".format(project=PROJECT_NAME)
+		"projects/{project}/reports/report_{project}.pdf".format(project=PROJECT)
 	params:
-		out_html="reports/report_{project}.html".format(project=PROJECT_NAME)
+		out_html="projects/{project}/reports/report_{project}.html".format(project=PROJECT)
 	run:
 		from scripts.report import generate_report
 		import pdfkit
 		pardir = os.getcwd()
-		generate_report.generate_report(IP_SAMPLE_LIST, CON_SAMPLE_LIST, pardir, params.out_html, PROJECT_NAME)
+		generate_report.generate_report(COMPARISON_LIST, pardir, params.out_html, PROJECT)
 		pdfkit.from_file(params.out_html, output[0])
 
 rule archive:
 	input:
-		peak_fn = expand("clam/{project}/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed", 
-			project=PROJECT_NAME, ip_sample=IP_SAMPLE_LIST, con_sample=CON_SAMPLE_LIST),
-		report="reports/report_{project}.pdf".format(project=PROJECT_NAME),
+		clam_peak = [
+			"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed".format( 
+				project=PROJECT, ip_sample=x[0], con_sample=x[1])
+				for x in COMPARISON_LIST
+				],
+		macs2_peak = [
+				"projects/{project}/macs2/{ip_sample}-{con_sample}/{ip_sample}-{con_sample}--nomodel_peaks.narrowPeak".format(
+				project=PROJECT, ip_sample=x[0], con_sample=x[1])
+				for x in COMPARISON_LIST
+				],
+		report = "projects/{project}/reports/report_{project}.pdf".format(project=PROJECT),
 	output:
-		"archive/{project}.tar.gz".format(project=PROJECT_NAME)
+		"projects/{project}/archive/{project}.tar.gz".format(project=PROJECT)
 	params:
-		project=PROJECT_NAME
+		project=PROJECT
 	shell:
 		"""
-		tar -czvf {output} clam/{params.project}/peaks-* {input.report}
+		tar -czvf {output} projects/{params.project}/clam/peaks-* projects/{params.project}/macs2/* {input.report}
+		rm -r projects/{params.project}/sra projects/{params.project}/star/*/*/*.bam projects/{params.project}/reads
 		"""

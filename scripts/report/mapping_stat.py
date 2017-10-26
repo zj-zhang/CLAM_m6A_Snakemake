@@ -13,8 +13,10 @@ def read_star_log(fn):
 	stats = {}
 	stats_list = [
 		'Number of input reads',
-		'Uniquely mapped reads number',
+		#'Uniquely mapped reads number',
 		'Uniquely mapped reads %',
+		#'Number of reads mapped to multiple loci',
+		'% of reads mapped to multiple loci',
 		'Number of splices: Total',
 		]
 	with open(fn, 'r') as f:
@@ -61,8 +63,10 @@ def read_barcode(fn):
 def mapping_stat(bam_fn, verbose=True):
 	stats_list = [
 		'Number of input reads',
-		'Uniquely mapped reads number',
+		#'Uniquely mapped reads number',
 		'Uniquely mapped reads %',
+		#'Number of reads mapped to multiple loci',
+		'% of reads mapped to multiple loci',
 		'Number of splices: Total',
 		'Number of splice junction reads',
 		'Number of exon reads'

@@ -3,9 +3,9 @@ import sys
 import os
 
 cur_dir = os.path.dirname(os.path.realpath(__file__))
-binnum=50
 peakfile=sys.argv[1]
 genome = sys.argv[2] if len(sys.argv)>2 else 'hg19'
+binnum = int(sys.argv[3]) if len(sys.argv)>3 else 50
 filename=peakfile.split('/')[-1]
 
 def exon_cds (start, end, cdsstart,cdsend):

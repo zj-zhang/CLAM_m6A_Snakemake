@@ -45,16 +45,21 @@ def read_star_mapping_stats(fn):
 
 
 def read_project_mapping_stats(ip_sample_list, con_sample_list, project_name):
-	stats_df = pd.DataFrame(columns=['Sample', 'Type', 'Number of input reads',
-		'Uniquely mapped reads number',
+	target_col = ['Sample', 'Type',
+		'Number of input reads',
+		#'Uniquely mapped reads number',
 		'Uniquely mapped reads %',
+		#'Number of reads mapped to multiple loci'，
+		'% of reads mapped to multiple loci',
 		'Number of splices: Total',
 		'Number of splice junction reads',
-		'Number of exon reads'])
+		'Number of exon reads'
+		]
+	stats_df = pd.DataFrame(columns=target_col)
 	tmp = []
 	for ip_sample in ip_sample_list:
 		this_dict = {'Sample': ip_sample, 'Type':'IP'}
-		with open(os.path.join('star', project_name, 'ip', ip_sample, 'mapping_stats.txt'), 'r') as f:
+		with open(os.path.join('projects', project_name, 'star', 'ip', ip_sample, 'mapping_stats.txt'), 'r') as f:
 			for line in f:
 				try:
 					key, val = line.strip().split('\t')
@@ -64,7 +69,7 @@ def read_project_mapping_stats(ip_sample_list, con_sample_list, project_name):
 		tmp.append(this_dict)
 	for con_sample in con_sample_list:
 		this_dict = {'Sample': con_sample, 'Type':'Con'}
-		with open(os.path.join('star', project_name, 'con', con_sample, 'mapping_stats.txt'), 'r') as f:
+		with open(os.path.join('projects', project_name, 'star', 'con', con_sample, 'mapping_stats.txt'), 'r') as f:
 			for line in f:
 				try:
 					key, val = line.strip().split('\t')
@@ -73,10 +78,14 @@ def read_project_mapping_stats(ip_sample_list, con_sample_list, project_name):
 				this_dict[key] = val
 		tmp.append(this_dict)
 	stats_df = stats_df.append(tmp, ignore_index=True)
+	stats_df = stats_df[target_col]
 	return stats_df.to_html(border=1)
 
 
-def generate_report(ip_sample_list, con_sample_list, pardir, outfn, project_name):
+def generate_report(comparison_list, pardir, outfn, project_name):
+	ip_sample_list = list(set([x[0] for x in comparison_list]))
+	con_sample_list = list(set([x[1] for x in comparison_list]))
+	
 	html_str = '<html><head><title>Evaluation of Project "%s"</title></head>\n'%project_name
 	html_str += '<body>\n'
 	html_str += '<h1>%s</h1>\n'%project_name
@@ -93,35 +102,48 @@ def generate_report(ip_sample_list, con_sample_list, pardir, outfn, project_name
 	#	'Number of splices: Total',
 	#	]
 	#*--- EVALUATION FOR EACH IP-CON COMPARISON ---*	
-	for ip_sample in ip_sample_list:
-		for con_sample in con_sample_list:
-			html_str += '<hr>\n'
-			comparison = "{ip_sample}-{con_sample}".format(ip_sample=ip_sample, con_sample=con_sample)
-			homer_table = read_homer_table( os.path.join(pardir, 'homer', project_name, comparison, 'homerResults.html') )
-			topology_img = os.path.join(pardir, 'topology', project_name, comparison, 'dist.png' )
-			#ip_mapping_stat = read_star_mapping_stats( os.path.join(pardir, 'star', project_name, 'ip', ip_sample, 'Log.final.out') )
-			#con_mapping_stat = read_star_mapping_stats( os.path.join(pardir, 'star', project_name, 'con', con_sample, 'Log.final.out') )
-			tot_peak = count_peak_num(os.path.join(pardir, 'clam', project_name, 'peaks-'+comparison, 'narrow_peak.unique.bed'))
-			
-			html_str += '<h2>%s</h2>\n'%comparison
-			# summary stats
-			html_str += '<h3>Summary statistics</h3>\n'
-			#html_str += '<h5>IP Mapping</h5>\n'
-			#for cat in stats_list:
-			#	html_str += '<p>%s = %s</p>\n'%( cat, ip_mapping_stat[cat] )
-			#html_str += '<h5>Input Mapping</h5>\n'
-			#for cat in stats_list:
-			#	html_str += '<p>%s = %s</p>\n'%( cat, con_mapping_stat[cat] )
-			html_str += '<h5>Peak calling</h5>\n'
-			html_str += '<p>No. peaks = %s</p>\n'%tot_peak
-			html_str += '<br>\n'
-			# homer motifs
-			html_str += '<h3>HOMER motifs</h3>\n'
-			html_str += homer_table
-			html_str += '<br>\n'
-			# topology distribution
-			html_str += '<h3>Topology distribution</h3>\n'
-			html_str += '<img src="%s" />\n'%topology_img
+	for x in comparison_list:
+		ip_sample = x[0]
+		con_sample = x[1]
+		html_str += '<hr>\n'
+		comparison = "{ip_sample}-{con_sample}".format(ip_sample=ip_sample, con_sample=con_sample)
+		
+		homer_table_unique = read_homer_table( os.path.join(pardir, 'projects', project_name,  'homer', comparison, 'clam_unique', 'homerResults.html') )
+		topology_img_unique = os.path.join(pardir, 'projects', project_name, 'topology', comparison, 'clam_unique', 'dist.png' )
+		repeat_img_unique = os.path.join(pardir, 'projects', project_name, 'repeats', comparison, 'clam_unique', 'dist.png' )
+
+		homer_table_rescue = read_homer_table( os.path.join(pardir, 'projects', project_name, 'homer', comparison, 'clam_rescue', 'homerResults.html') )
+		topology_img_rescue = os.path.join(pardir, 'projects', project_name, 'topology', comparison, 'clam_rescue', 'dist.png' )
+		repeat_img_rescue = os.path.join(pardir, 'projects', project_name, 'repeats', comparison, 'clam_rescue', 'dist.png' )
+
+		peak_num_img = os.path.join(pardir, 'projects', project_name, 'clam', 'peaks-'+comparison, 'peak_num.png' )
+		
+		html_str += '<h2>%s</h2>\n'%comparison
+		# summary stats
+		html_str += '<h3>Summary statistics</h3>\n'
+		html_str += '<img src="%s" />\n'%peak_num_img
+		html_str += '<br>\n'
+		# homer motifs
+		html_str += '<h3>HOMER motifs</h3>\n'
+		html_str += '<h4>Unique peaks</h4>\n'
+		html_str += homer_table_unique
+		html_str += '<h4>Rescue peaks</h4>\n'
+		html_str += homer_table_rescue
+		html_str += '<br>\n'
+		# topology distribution
+		html_str += '<h3>Topology distribution</h3>\n'
+		html_str += '<h4>Unique peaks</h4>\n'
+		html_str += '<img src="%s" />\n'%topology_img_unique
+		html_str += '<h4>Rescue peaks</h4>\n'
+		html_str += '<img src="%s" />\n'%topology_img_rescue
+		# repetitive elements
+		html_str += '<h3>Repetitive elements</h3>\n'
+		html_str += '<h4>Unique peaks</h4>\n'
+		html_str += '<img src="%s" />\n'%repeat_img_unique
+		html_str += '<h4>Rescue peaks</h4>\n'
+		html_str += '<img src="%s" />\n'%repeat_img_rescue
+
+	
 	html_str += '</body>\n'
 	html_str += '</html>\n'
 	with open(outfn, 'w') as f:
