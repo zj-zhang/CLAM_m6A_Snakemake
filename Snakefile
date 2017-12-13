@@ -78,7 +78,8 @@ rule all:
 
 rule download_sra:
 	input:
-		"projects/{project}/config/config.yaml".format(project=PROJECT)
+		config_fn="projects/{project}/config/config.yaml".format(project=PROJECT),
+		sradir_fn="projects/{project}/config/sra_dir.txt".format(project=PROJECT)
 	output:
 		["projects/{project}/sra/{sample_type}/{sample_name}.sra".format(project=PROJECT, sample_type=SAMPLE_TYPE_DICT[x], sample_name=x)
 			for x in SAMPLE_TYPE_DICT.keys()]
@@ -397,7 +398,6 @@ rule repeat_comp:
 		"""
 
 
-
 rule homer_motif_rescue:
 	input:
 		peak_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.rescue.bed"
@@ -493,6 +493,31 @@ rule topology_dist_macs2:
 		Rscript {params.plot_script} {params.outdir}/dist.data {output.dist_img}
 		"""		
 
+rule make_bw:
+	input:
+		"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
+	output:
+		"projects/{project}/bigwig/{ip_sample}-{con_sample}/foo.txt"
+	params:
+		ip_mbam="projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam",
+		ip_ubam="projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam",
+		ip_bw_dir="projects/{project}/bigwig/{ip_sample}-{con_sample}/{ip_sample}/",
+		con_mbam="projects/{project}/clam/con/{con_sample}/realigned.sorted.bam",
+		con_ubam="projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam",
+		con_bw_dir="projects/{project}/bigwig/{ip_sample}-{con_sample}/{con_sample}/",
+		bw_script="scripts/make_bw/make_bigwig.py"
+	shell:
+		"""
+		mkdir -p {params.ip_bw_dir}
+		mkdir -p {params.con_bw_dir}
+		python2 {params.bw_script} {params.ip_ubam} {params.ip_mbam} {params.ip_bw_dir}
+		python2 {params.bw_script} {params.con_ubam} {params.con_mbam} {params.con_bw_dir}
+		echo "`date` done making bw" > {output}
+		"""
+
+
 
 
 ### generating reports and cleaning up
@@ -500,58 +525,67 @@ rule topology_dist_macs2:
 
 rule report:
 	input:
+		# require ip mapping stats
 		[ "projects/{project}/star/ip/{sample}/mapping_stats.txt".format(
 			project=PROJECT, 
 			sample=x[0])
 			for x in COMPARISON_LIST
 		],
+		# require con mapping stats
 		[ "projects/{project}/star/con/{sample}/mapping_stats.txt".format(
 			project=PROJECT, 
 			sample=x[1])
 			for x in COMPARISON_LIST
 		],
+		# require peak comparison
 		[ "projects/{project}/clam/peaks-{ip_sample}-{con_sample}/peak_num.png".format(
 			project=PROJECT, 
 			ip_sample=x[0],
 			con_sample=x[1])
 			for x in COMPARISON_LIST
 		],
+		# require unique homer
 		[ "projects/{project}/homer/{ip_sample}-{con_sample}/clam_unique/homerResults.html".format(
 			project=PROJECT, 
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
 		],
+		# require unique topology
 		[ "projects/{project}/topology/{ip_sample}-{con_sample}/clam_unique/dist.png".format(
 			project=PROJECT, 
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
 		],
+		# require unique repeats
 		[ "projects/{project}/repeats/{ip_sample}-{con_sample}/clam_unique/dist.png".format(
 			project=PROJECT, 
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
 		],
+		# require rescued homer
 		[ "projects/{project}/homer/{ip_sample}-{con_sample}/clam_rescue/homerResults.html".format(
 			project=PROJECT, 
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
 		],
+		# require rescued topology
 		[ "projects/{project}/topology/{ip_sample}-{con_sample}/clam_rescue/dist.png".format(
 			project=PROJECT, 
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
 		],
+		# require rescued repeats
 		[ "projects/{project}/repeats/{ip_sample}-{con_sample}/clam_rescue/dist.png".format(
 			project=PROJECT, 
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
-		]
+		],
 	output:
 		"projects/{project}/reports/report_{project}.pdf".format(project=PROJECT)
 	params:
@@ -575,6 +609,12 @@ rule archive:
 				project=PROJECT, ip_sample=x[0], con_sample=x[1])
 				for x in COMPARISON_LIST
 				],
+		bigwig = [ "projects/{project}/bigwig/{ip_sample}-{con_sample}/foo.txt".format(
+				project=PROJECT,
+				ip_sample=x[0],
+				con_sample=x[1] )
+				for x in COMPARISON_LIST
+				],
 		report = "projects/{project}/reports/report_{project}.pdf".format(project=PROJECT),
 	output:
 		"projects/{project}/archive/{project}.tar.gz".format(project=PROJECT)
@@ -582,6 +622,6 @@ rule archive:
 		project=PROJECT
 	shell:
 		"""
-		tar -czvf {output} projects/{params.project}/clam/peaks-* projects/{params.project}/macs2/* {input.report}
-		rm -r projects/{params.project}/sra projects/{params.project}/star/*/*/*.bam projects/{params.project}/reads
+		tar -czvf {output} projects/{params.project}/clam/peaks-* projects/{params.project}/macs2/* {input.report} projects/{params.project}/bigwig/*
+		rm -r projects/{params.project}/sra projects/{params.project}/star/*/*/*.bam projects/{params.project}/reads/*
 		"""
