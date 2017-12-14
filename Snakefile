@@ -10,6 +10,7 @@ Last revised:
 Revision history:
 	10.1.2017 null
 	10.18.2017 add em-related functionalities 
+	12.13.2017 changed starting file requirement to avoid re-run and enable starting from read fastq files
 """
 
 import os
@@ -78,7 +79,7 @@ rule all:
 
 rule download_sra:
 	input:
-		config_fn="projects/{project}/config/config.yaml".format(project=PROJECT),
+		#config_fn="projects/{project}/config/config.yaml".format(project=PROJECT),
 		sradir_fn="projects/{project}/config/sra_dir.txt".format(project=PROJECT)
 	output:
 		["projects/{project}/sra/{sample_type}/{sample_name}.sra".format(project=PROJECT, sample_type=SAMPLE_TYPE_DICT[x], sample_name=x)
