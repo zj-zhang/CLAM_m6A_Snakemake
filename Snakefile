@@ -6,11 +6,12 @@ Author:
 Date: 
 	9.18.2017
 Last revised:
-	10.18.2017
+	1.3.2018
 Revision history:
 	10.1.2017 null
 	10.18.2017 add em-related functionalities 
 	12.13.2017 changed starting file requirement to avoid re-run and enable starting from read fastq files
+	1.3.2018 modified report
 """
 
 import os
@@ -44,6 +45,7 @@ configfile:
 
 
 PAIRED_END = False if 'paired_end' not in config else config['paired_end']
+INCLUDE_MREAD_ANALYSIS = True if 'include_mread_analysis' not in config else config['include_mread_analysis']
 
 FQ_PATTERN = [ 'projects/{project}/reads/{sample_type}/{sample_name}_1.fastq.gz', 'projects/{project}/reads/{sample_type}/{sample_name}_2.fastq.gz'] \
 	if PAIRED_END else \
@@ -265,10 +267,13 @@ rule clam_callpeak:
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
 		qval_cutoff=0.005,
-		fold_change='5 50'
+		fold_change='5 50',
+		threads=4
+		
 	shell:
 		"""
 		CLAM peakcaller -i {input.ip_prep}  -c {input.con_prep} \
+			-p {params.threads} \
 			-o {params.outdir} --gtf {params.gtf} --unique-only --unstranded --binsize {params.binsize} \
 			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
 		"""
@@ -291,10 +296,12 @@ rule clam_callpeak_mread:
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
 		qval_cutoff=0.005,
-		fold_change='5 50'
+		fold_change='5 50',
+		threads=4
 	shell:
 		"""
 		CLAM peakcaller -i {input.ip_prep}  -c {input.con_prep} \
+			-p {params.threads} \
 			-o {params.outdir} --gtf {params.gtf} --unstranded --binsize {params.binsize} \
 			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
 		"""
@@ -328,15 +335,16 @@ rule compare_peaks:
 	output:
 		clam_rescued_peak="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.rescue.bed",
 		clam_macs2_peak="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.macs2.bed",
-		macs2_clam_peak="projects/{project}/macs2/{ip_sample}-{con_sample}/narrow_peak.clam.bed",
+		#macs2_clam_peak="projects/{project}/macs2/{ip_sample}-{con_sample}/narrow_peak.clam.bed",
 		plot_fn="projects/{project}/clam/peaks-{ip_sample}-{con_sample}/peak_num.png"
 	params:
 		plot_script="scripts/report/plot_peak_num.R",
 	shell:
+		# removed 1.3.2018: no output was generated; need debug
+		# bedtools intersect -b {input.clam_mpeak} -a {input.macs2_peak} > {output.macs2_clam_peak} 
 		"""
 		bedtools intersect -v -a {input.clam_mpeak} -b {input.clam_upeak} > {output.clam_rescued_peak}
 		bedtools intersect -a {input.clam_mpeak} -b {input.macs2_peak} > {output.clam_macs2_peak}
-		bedtools intersect -b {input.clam_mpeak} -a {input.macs2_peak} > {output.macs2_clam_peak}
 		Rscript {params.plot_script} {input.clam_mpeak} {input.clam_upeak} {input.macs2_peak} {output.plot_fn}
 		"""
 
@@ -349,11 +357,11 @@ rule homer_motif:
 		"projects/{project}/homer/{ip_sample}-{con_sample}/clam_unique/homerResults.html"
 	params:
 		outdir="projects/{project}/homer/{ip_sample}-{con_sample}/clam_unique",
-		motif_len='4,5,6,7,8',
+		motif_len='5,6,7',
 		genome=GENOME,
 		nthread=4,
 		size=100,
-		motif_num=3
+		motif_num=10
 	log:
 		"projects/{project}/logs/homer/log.homer.{ip_sample}-{con_sample}.txt"
 	shell:
@@ -406,11 +414,11 @@ rule homer_motif_rescue:
 		"projects/{project}/homer/{ip_sample}-{con_sample}/clam_rescue/homerResults.html"
 	params:
 		outdir="projects/{project}/homer/{ip_sample}-{con_sample}/clam_rescue",
-		motif_len='4,5,6,7,8',
+		motif_len='5,6,7',
 		genome=GENOME,
 		nthread=4,
 		size=100,
-		motif_num=3
+		motif_num=10
 	log:
 		"projects/{project}/logs/homer/log.homer.{ip_sample}-{con_sample}.rescue.txt"
 	shell:
@@ -463,11 +471,11 @@ rule homer_motif_macs2:
 		"projects/{project}/homer/{ip_sample}-{con_sample}/macs2/homerResults.html"
 	params:
 		outdir="projects/{project}/homer/{ip_sample}-{con_sample}/macs2",
-		motif_len=5,
+		motif_len='5,6,7',
 		genome=GENOME,
 		nthread=4,
 		size=100,
-		motif_num=5
+		motif_num=10
 	log:
 		"projects/{project}/logs/homer/log.homer.{ip_sample}-{con_sample}.macs2.txt"
 	shell:
@@ -595,7 +603,7 @@ rule report:
 		from scripts.report import generate_report
 		import pdfkit
 		pardir = os.getcwd()
-		generate_report.generate_report(COMPARISON_LIST, pardir, params.out_html, PROJECT)
+		generate_report.generate_report(COMPARISON_LIST, pardir, params.out_html, PROJECT, include_mread_analysis=INCLUDE_MREAD_ANALYSIS)
 		pdfkit.from_file(params.out_html, output[0])
 
 rule archive:
@@ -624,5 +632,6 @@ rule archive:
 	shell:
 		"""
 		tar -czvf {output} projects/{params.project}/clam/peaks-* projects/{params.project}/macs2/* {input.report} projects/{params.project}/bigwig/*
-		rm -r projects/{params.project}/sra projects/{params.project}/star/*/*/*.bam projects/{params.project}/reads/*
+		##rm -rf projects/{params.project}/sra/* projects/{params.project}/star/*/*/*.bam projects/{params.project}/reads/*
+		echo "`date` done archiving" > projects/{params.project}/foo.txt
 		"""

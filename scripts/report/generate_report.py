@@ -4,6 +4,7 @@
 """
 
 import bs4 as bs
+from lxml import html
 import os
 import sys
 import pandas as pd
@@ -17,7 +18,18 @@ def read_homer_table(fn):
 		soup = bs.BeautifulSoup(data, 'lxml')
 		table = soup.find('table')
 		homer_table = str(table).replace('homerResults', os.path.join(par_dir,'homerResults'))
-	return homer_table
+	html_table = html.fragment_fromstring(homer_table)
+	top_row = 5
+	row_counter = 0
+	for row in html_table.iterchildren():
+		row_counter += 1
+		row.remove(row.getchildren()[-1])
+		row.remove(row.getchildren()[-1])
+		if row_counter>= top_row:
+			row.clear()
+	
+	html_table = str(html.tostring(html_table, encoding='unicode', with_tail=False))
+	return html_table
 
 
 def count_peak_num(fn):
@@ -79,10 +91,12 @@ def read_project_mapping_stats(ip_sample_list, con_sample_list, project_name):
 		tmp.append(this_dict)
 	stats_df = stats_df.append(tmp, ignore_index=True)
 	stats_df = stats_df[target_col]
-	return stats_df.to_html(border=1)
+	stats_df.index = stats_df['Sample']
+	#return stats_df.to_html(border=1)
+	return stats_df
 
 
-def generate_report(comparison_list, pardir, outfn, project_name):
+def generate_report(comparison_list, pardir, outfn, project_name, include_mread_analysis=True):
 	ip_sample_list = list(set([x[0] for x in comparison_list]))
 	con_sample_list = list(set([x[1] for x in comparison_list]))
 	
@@ -93,7 +107,8 @@ def generate_report(comparison_list, pardir, outfn, project_name):
 	#*--- MAPPING STATS FOR EACH BAM FILE ---*
 	html_str += '<hr>\n'
 	html_str += '<h2>Mapping Stats</h2>\n'
-	html_str += read_project_mapping_stats(ip_sample_list, con_sample_list, project_name)
+	stats_df =  read_project_mapping_stats(ip_sample_list, con_sample_list, project_name)
+	html_str += stats_df.to_html(border=1, index=False)
 	
 	#stats_list = [
 	#	'Number of input reads',
@@ -121,27 +136,31 @@ def generate_report(comparison_list, pardir, outfn, project_name):
 		html_str += '<h2>%s</h2>\n'%comparison
 		# summary stats
 		html_str += '<h3>Summary statistics</h3>\n'
+		html_str += stats_df.loc[[ip_sample, con_sample]].to_html(border=1, index=False)
 		html_str += '<img src="%s" />\n'%peak_num_img
 		html_str += '<br>\n'
 		# homer motifs
 		html_str += '<h3>HOMER motifs</h3>\n'
 		html_str += '<h4>Unique peaks</h4>\n'
 		html_str += homer_table_unique
-		html_str += '<h4>Rescue peaks</h4>\n'
-		html_str += homer_table_rescue
+		if include_mread_analysis:
+			html_str += '<h4>Rescue peaks</h4>\n'
+			html_str += homer_table_rescue
 		html_str += '<br>\n'
 		# topology distribution
 		html_str += '<h3>Topology distribution</h3>\n'
 		html_str += '<h4>Unique peaks</h4>\n'
 		html_str += '<img src="%s" />\n'%topology_img_unique
-		html_str += '<h4>Rescue peaks</h4>\n'
-		html_str += '<img src="%s" />\n'%topology_img_rescue
+		if include_mread_analysis:
+			html_str += '<h4>Rescue peaks</h4>\n'
+			html_str += '<img src="%s" />\n'%topology_img_rescue
 		# repetitive elements
-		html_str += '<h3>Repetitive elements</h3>\n'
-		html_str += '<h4>Unique peaks</h4>\n'
-		html_str += '<img src="%s" />\n'%repeat_img_unique
-		html_str += '<h4>Rescue peaks</h4>\n'
-		html_str += '<img src="%s" />\n'%repeat_img_rescue
+		if include_mread_analysis:
+			html_str += '<h3>Repetitive elements</h3>\n'
+			html_str += '<h4>Unique peaks</h4>\n'
+			html_str += '<img src="%s" />\n'%repeat_img_unique	
+			html_str += '<h4>Rescue peaks</h4>\n'
+			html_str += '<img src="%s" />\n'%repeat_img_rescue
 
 	
 	html_str += '</body>\n'

@@ -1,13 +1,3 @@
-sample_type_dict:
-    Input_sample: con
-    m6A_IP_sample: ip
-
-sample_comparison:
-    [[m6A_IP_sample, Input_sample]]
-
-
-genome: hg19
-
 hg19:
     star_idx: /u/nobackup/yxing/NOBACKUP/frankwoe/hg19/star_idx_gencode_v19
     gtf: /u/nobackup/yxing/NOBACKUP/frankwoe/hg19/gencode.v19.annotation.gtf

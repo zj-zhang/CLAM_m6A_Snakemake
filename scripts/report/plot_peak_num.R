@@ -2,6 +2,7 @@
 ## and plot a heatmap
 ## Zijun Zhang
 ## 10.23.2017
+## revised 1.8.2018: better visualization
 
 library(ggplot2)
 
@@ -33,8 +34,9 @@ for(i in 1:nrow(peak_df))
 p = ggplot(data=peak_df, aes(x=x, y=y)) + 
 	geom_tile(aes(fill=value)) + 
 	scale_fill_gradient(low = "white",  high = "steelblue", guide=FALSE) +
-	geom_text(aes(label = value), size=2) +
+	geom_text(aes(label = value), size=3) +
 	xlab('Reference') + ylab('Target') +
-	theme(axis.text=element_text(size=4), axis.title=element_text(size=4))
+	theme_bw() +
+	theme(axis.text.x=element_text(size=9), axis.title=element_text(size=10), axis.text.y=element_text(size=9, angle = 90, hjust=0.5)) 
 	
 ggsave(argv[4], plot=p, width=2.5, height=2.5)
