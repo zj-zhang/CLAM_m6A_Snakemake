@@ -12,6 +12,7 @@ Revision history:
 	10.18.2017 add em-related functionalities 
 	12.13.2017 changed starting file requirement to avoid re-run and enable starting from read fastq files
 	1.3.2018 modified report
+	2.14.2018 modified peak-calling filtering
 """
 
 import os
@@ -75,7 +76,14 @@ MAX_TAGS = config['clam']['max_tags']
 rule all:
 	input:
 		"projects/{project}/archive/{project}.tar.gz".format(project=PROJECT)
-				
+
+rule all_clam:
+	input:
+		clam_peak = [
+			"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed".format( 
+				project=PROJECT, ip_sample=x[0], con_sample=x[1])
+				for x in COMPARISON_LIST
+				]
 
 ### downloading ###
 
@@ -266,8 +274,8 @@ rule clam_callpeak:
 		outdir="projects/{project}/clam/peaks-{ip_sample}-{con_sample}",
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
-		qval_cutoff=0.005,
-		fold_change='5 50',
+		qval_cutoff=0.1,
+		fold_change='0',
 		threads=4
 		
 	shell:
@@ -277,6 +285,9 @@ rule clam_callpeak:
 			-o {params.outdir} --gtf {params.gtf} --unique-only --unstranded --binsize {params.binsize} \
 			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
 		"""
+		"mv {output} {output}.all"
+		"awk '$9<0.005 && $7>1.609' {output}.all > {output}"
+		
 
 
 rule clam_callpeak_mread:
@@ -295,8 +306,8 @@ rule clam_callpeak_mread:
 		outdir="projects/{project}/clam/peaks-{ip_sample}-{con_sample}",
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
-		qval_cutoff=0.005,
-		fold_change='5 50',
+		qval_cutoff=0.1,
+		fold_change='0',
 		threads=4
 	shell:
 		"""
@@ -305,6 +316,9 @@ rule clam_callpeak_mread:
 			-o {params.outdir} --gtf {params.gtf} --unstranded --binsize {params.binsize} \
 			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
 		"""
+		"mv {output} {output}.all"
+		"awk '$9<0.005 && $7>1.609' {output}.all > {output}"
+		
 		
 
 rule macs2:
@@ -504,7 +518,9 @@ rule topology_dist_macs2:
 
 rule make_bw:
 	input:
-		"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
+		#"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
+		"projects/{project}/clam/con/{con_sample}/realigned.sorted.bam",	
+		"projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam"	
 	output:
 		"projects/{project}/bigwig/{ip_sample}-{con_sample}/foo.txt"
 	params:
