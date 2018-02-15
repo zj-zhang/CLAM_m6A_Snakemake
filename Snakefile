@@ -83,6 +83,11 @@ rule all_clam:
 			"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed".format( 
 				project=PROJECT, ip_sample=x[0], con_sample=x[1])
 				for x in COMPARISON_LIST
+				],
+		clam_mpeak = [
+			"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed".format( 
+				project=PROJECT, ip_sample=x[0], con_sample=x[1])
+				for x in COMPARISON_LIST
 				]
 
 ### downloading ###
@@ -275,7 +280,7 @@ rule clam_callpeak:
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
 		qval_cutoff=0.1,
-		fold_change='0',
+		fold_change='0.1',
 		threads=4
 		
 	shell:
@@ -307,7 +312,7 @@ rule clam_callpeak_mread:
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
 		qval_cutoff=0.1,
-		fold_change='0',
+		fold_change='0.1',
 		threads=4
 	shell:
 		"""
