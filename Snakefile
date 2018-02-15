@@ -289,9 +289,9 @@ rule clam_callpeak:
 			-p {params.threads} \
 			-o {params.outdir} --gtf {params.gtf} --unique-only --unstranded --binsize {params.binsize} \
 			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
+		mv {output} {output}.all
+		awk '$9<0.005 && $7>1.609' {output}.all > {output}
 		"""
-		"mv {output} {output}.all"
-		"awk '$9<0.005 && $7>1.609' {output}.all > {output}"
 		
 
 
@@ -320,9 +320,9 @@ rule clam_callpeak_mread:
 			-p {params.threads} \
 			-o {params.outdir} --gtf {params.gtf} --unstranded --binsize {params.binsize} \
 			--qval-cutoff {params.qval_cutoff} --fold-change {params.fold_change} >{log} 2>&1
+		mv {output} {output}.all
+		awk '$9<0.005 && $7>1.609' {output}.all > {output}
 		"""
-		"mv {output} {output}.all"
-		"awk '$9<0.005 && $7>1.609' {output}.all > {output}"
 		
 		
 
