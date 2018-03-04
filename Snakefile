@@ -13,6 +13,7 @@ Revision history:
 	12.13.2017 changed starting file requirement to avoid re-run and enable starting from read fastq files
 	1.3.2018 modified report
 	2.14.2018 modified peak-calling filtering
+	3.4.2018 added homer motif and topology; not in report yet
 """
 
 import os
