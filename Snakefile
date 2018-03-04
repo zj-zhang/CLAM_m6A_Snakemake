@@ -616,6 +616,20 @@ rule report:
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
 		],
+		# require macs2 homer motif
+		[ "projects/{project}/homer/{ip_sample}-{con_sample}/macs2/homerResults.html".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		],
+		# require macs2 topology
+		[ "projects/{project}/topology/{ip_sample}-{con_sample}/macs2/dist.png".format(
+			project=PROJECT, 
+			ip_sample=x[0], 
+			con_sample=x[1] )
+			for x in COMPARISON_LIST
+		]
 	output:
 		"projects/{project}/reports/report_{project}.pdf".format(project=PROJECT)
 	params:

@@ -1,5 +1,5 @@
 __default__:
-    h_data: 4G
+    h_data: 2G
     h_rt: 2:00:0
     threads: 1
 star_ip:
@@ -11,27 +11,39 @@ star_con:
     h_rt: 02:00:00
     threads: 1
 clam_prep_ip:
-    h_data: 8G
-    h_rt: 12:00:0
+    h_data: 12G
+    h_rt: 8:00:0
     threads: 1
 clam_prep_con:
-    h_data: 8G
-    h_rt: 12:00:0
+    h_data: 12G
+    h_rt: 8:00:0
     threads: 1
 clam_callpeak:
     h_data: 8G
-    h_rt: 24:00:0
+    h_rt: 4:00:0
     threads: 1
 clam_callpeak_mread:
     h_data: 8G
-    h_rt: 24:00:0
+    h_rt: 4:00:0
     threads: 1
 macs2:
-    h_data: 8G
+    h_data: 18G
     h_rt: 24:00:0
+    threads: 1
 clam_em_con:
     h_data: 18G
-    h_rt: 24:00:0
+    h_rt: 12:00:0
+    threads: 1
 clam_em_ip:
     h_data: 18G
-    h_rt: 24:00:0
+    h_rt: 12:00:0
+    threads: 1
+homer_motif:
+    h_data: 6G
+    h_rt: 1:00:0
+homer_motif_rescue:
+    h_data: 6G
+    h_rt: 1:00:0
+homer_motif_macs2:
+    h_data: 6G
+    h_rt: 1:00:0
