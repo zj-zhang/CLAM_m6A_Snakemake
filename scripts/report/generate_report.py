@@ -126,7 +126,10 @@ def generate_report(comparison_list, pardir, outfn, project_name, include_mread_
 		homer_table_unique = read_homer_table( os.path.join(pardir, 'projects', project_name,  'homer', comparison, 'clam_unique', 'homerResults.html') )
 		topology_img_unique = os.path.join(pardir, 'projects', project_name, 'topology', comparison, 'clam_unique', 'dist.png' )
 		repeat_img_unique = os.path.join(pardir, 'projects', project_name, 'repeats', comparison, 'clam_unique', 'dist.png' )
-
+		
+		homer_table_macs2 = read_homer_table( os.path.join(pardir, 'projects', project_name,  'homer', comparison, 'macs2', 'homerResults.html') )
+		topology_img_macs2 = os.path.join(pardir, 'projects', project_name, 'topology', comparison, 'macs2', 'dist.png' )
+		
 		homer_table_rescue = read_homer_table( os.path.join(pardir, 'projects', project_name, 'homer', comparison, 'clam_rescue', 'homerResults.html') )
 		topology_img_rescue = os.path.join(pardir, 'projects', project_name, 'topology', comparison, 'clam_rescue', 'dist.png' )
 		repeat_img_rescue = os.path.join(pardir, 'projects', project_name, 'repeats', comparison, 'clam_rescue', 'dist.png' )
@@ -146,6 +149,8 @@ def generate_report(comparison_list, pardir, outfn, project_name, include_mread_
 		if include_mread_analysis:
 			html_str += '<h4>Rescue peaks</h4>\n'
 			html_str += homer_table_rescue
+		html_str += '<h4>MACS2 peaks</h4>\n'
+		html_str += homer_table_macs2
 		html_str += '<br>\n'
 		# topology distribution
 		html_str += '<h3>Topology distribution</h3>\n'
@@ -154,6 +159,8 @@ def generate_report(comparison_list, pardir, outfn, project_name, include_mread_
 		if include_mread_analysis:
 			html_str += '<h4>Rescue peaks</h4>\n'
 			html_str += '<img src="%s" />\n'%topology_img_rescue
+		html_str += '<h4>MACS2 peaks</h4>\n'
+		html_str += '<img src="%s" />\n'%topology_img_macs2
 		# repetitive elements
 		if include_mread_analysis:
 			html_str += '<h3>Repetitive elements</h3>\n'
