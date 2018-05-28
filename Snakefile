@@ -14,12 +14,37 @@ Revision history:
 	1.3.2018 modified report
 	2.14.2018 modified peak-calling filtering
 	3.4.2018 added homer motif and topology for MACS2 in report
+	3.30.2018 update GEO downloader to accomodate for change of GEO interface
 """
 
 import os
 import re
 
 ###**--- UTILITY FUNCTION ---**###
+def concat_star_fq(sample_name):
+	fq1 = []
+	fq2 = []
+	par_dir = os.path.join('projects', PROJECT, 'reads')
+	suffix = '.fastq.gz' if GZIP else '.fastq' 
+	try:
+		for fn in os.listdir(par_dir+'/'+sample_name):
+			#print(fn)
+			if not fn.endswith(suffix):
+				continue
+			if PAIRED_END and fn.endswith('_2'+suffix):
+				fq2.append( os.path.join(par_dir, sample_name, fn) )
+			else:
+				fq1.append( os.path.join(par_dir, sample_name, fn) )
+	except:
+		raise Exception('concat_star_fq error')
+	if PAIRED_END:
+		s = ','.join(fq1) + ' ' + ','.join(fq2)
+	else:
+		s = ','.join(fq1)
+	#print(fq1)
+	#print(s)
+	return s
+
 def get_sample_names(project):
 	"""Get the sample names for IP and control in local folder
 	"""
@@ -38,7 +63,7 @@ def get_sample_names(project):
 
 
 ###**--- IN-FILE CONFIG ---**###
-	
+
 PROJECT = os.environ.get("PROJECT")
 CONFIG_FP = os.path.join("projects", PROJECT, 'config', 'config.yaml')
 
@@ -46,6 +71,7 @@ configfile:
 	CONFIG_FP
 
 
+GZIP=True
 PAIRED_END = False if 'paired_end' not in config else config['paired_end']
 INCLUDE_MREAD_ANALYSIS = True if 'include_mread_analysis' not in config else config['include_mread_analysis']
 
@@ -78,6 +104,12 @@ rule all:
 	input:
 		"projects/{project}/archive/{project}.tar.gz".format(project=PROJECT)
 
+
+rule all_mapping:
+	input:
+		["projects/{project}/star/{sample_name}/Aligned.sortedByCoord.out.bam".format(project=PROJECT, sample_name=x) for x in SAMPLE_TYPE_DICT ]
+
+
 rule all_clam:
 	input:
 		clam_peak = [
@@ -98,7 +130,9 @@ rule download_sra:
 		#config_fn="projects/{project}/config/config.yaml".format(project=PROJECT),
 		sradir_fn="projects/{project}/config/sra_dir.txt".format(project=PROJECT)
 	output:
-		["projects/{project}/sra/{sample_type}/{sample_name}.sra".format(project=PROJECT, sample_type=SAMPLE_TYPE_DICT[x], sample_name=x)
+		#["projects/{project}/sra/{sample_type}/{sample_name}.sra".format(project=PROJECT, sample_type=SAMPLE_TYPE_DICT[x], sample_name=x)
+		#	for x in SAMPLE_TYPE_DICT.keys()]
+		["projects/{project}/sra/{sample_name}/foo.txt".format(project=PROJECT, sample_name=x)
 			for x in SAMPLE_TYPE_DICT.keys()]
 	params:
 		project=PROJECT,
@@ -108,26 +142,29 @@ rule download_sra:
 	shell:
 		"""
 		#Rscript scripts/geo_downloader/getSRApath.R {params.project} {params.sradir_fn}
-		cat {params.sradir_fn} | python2 scripts/geo_downloader/download_SRA.py {params.project} > {params.downloader_fn}
-		bash {params.downloader_fn}
-		#rm {params.sradir_fn}
+		cat {params.sradir_fn} | python2 scripts/geo_downloader/download_SRA_entrez.py {params.project} > {params.downloader_fn}
+		#bash {params.downloader_fn}
+		touch {output}
 		"""
 
 
 rule dump_sra:
 	input:
-		lambda wildcards:
-			"projects/{project}/sra/{sample_type}/{sample_name}.sra".format(
-				project=PROJECT, 
-				sample_type=SAMPLE_TYPE_DICT[wildcards.sample_name],
-				sample_name=wildcards.sample_name)
+		"projects/{project}/sra/{sample_name}/foo.txt"
 	output:
-		FQ_PATTERN
+		'projects/{project}/reads/{sample_name}/foo.txt'
+		#['projects/{project}/reads/{sample_name}/foo.txt'.format(project=PROJECT, sample_name=x)
+		#	for x in SAMPLE_TYPE_DICT.keys() ] 
+	log:
+		"projects/{project}/logs/sra/{sample_name}.log"
 	params:
-		outdir="projects/{project}/reads/{sample_type}/"
+		indir="projects/{project}/sra/{sample_name}/SRR*",
+		outdir="projects/{project}/reads/{sample_name}/"
 	shell:
-		"fastq-dump -O {params.outdir} --gzip --split-3 {input}"
-		
+		"""
+		fastq-dump -O {params.outdir} --gzip {params.indir}
+		touch {output}
+		"""
 
 ### alignment and preprocessing
 
@@ -135,15 +172,17 @@ rule dump_sra:
 # data is paired-end. This is because in CLAM realigner, we cannot handle
 # paired-end read yet and two reads with identical ID will cause issues.
 # Will be fixed in the next update.		
-rule star_ip:
+rule star_map:
 	input:
-		sample=[IP_FQ_PATTERN]
+		#sample=[IP_FQ_PATTERN]
+		"projects/{project}/reads/{sample_name}/foo.txt"
 	output:
-		"projects/{project}/star/ip/{ip_sample}/Aligned.sortedByCoord.out.bam"
+		"projects/{project}/star/{sample_name}/Aligned.sortedByCoord.out.bam"
 	log:
-		"projects/{project}/logs/star/{ip_sample}.log"
+		"projects/{project}/logs/star/{sample_name}.log"
 	params:
-		prefix="projects/{project}/star/ip/{ip_sample}/",
+		reads= lambda wildcards: concat_star_fq(wildcards.sample_name),
+		prefix="projects/{project}/star/{sample_name}/",
 		index=config[GENOME]['star_idx'],
 		fq_cmd = FQ_CMD,
 		max_hits = 100
@@ -151,7 +190,7 @@ rule star_ip:
 	shell:
 		"""
 		STAR --genomeDir {params.index} \
-		--readFilesIn {input.sample[0]}  --outSAMtype BAM SortedByCoordinate \
+		--readFilesIn {params.reads}  --outSAMtype BAM SortedByCoordinate \
 		--outFileNamePrefix {params.prefix} \
 		--outFilterMultimapNmax {params.max_hits} \
 		--runThreadN {threads} \
@@ -159,119 +198,56 @@ rule star_ip:
 		--outStd Log >{log}		
 		"""
 
-rule star_con:
-	input:
-		sample=[CON_FQ_PATTERN]
-	output:
-		"projects/{project}/star/con/{con_sample}/Aligned.sortedByCoord.out.bam"
-	log:
-		"projects/{project}/logs/star/{con_sample}.log"
-	params:
-		prefix="projects/{project}/star/con/{con_sample}/",
-		index=config[GENOME]['star_idx'],
-		fq_cmd = FQ_CMD,
-		max_hits = 100
-	threads: 4
-	shell:
-		"""
-		STAR --genomeDir {params.index} \
-		--readFilesIn {input.sample[0]}  --outSAMtype BAM SortedByCoordinate \
-		--outFileNamePrefix {params.prefix} \
-		--outFilterMultimapNmax {params.max_hits} \
-		--runThreadN {threads} \
-		{params.fq_cmd} \
-		--outStd Log >{log}
-		"""
 
-
-rule mapping_stat_ip:
+rule mapping_stat:
 	input:
-		align="projects/{project}/star/ip/{sample}/Aligned.sortedByCoord.out.bam",
+		align="projects/{project}/star/{sample}/Aligned.sortedByCoord.out.bam",
 	output:
-		"projects/{project}/star/ip/{sample}/mapping_stats.txt"
+		"projects/{project}/star/{sample}/mapping_stats.txt"
 	shell:
 		"python2 scripts/report/mapping_stat.py {input.align} > {output}"
 
 
-rule mapping_stat_con:
+rule clam_prep:
 	input:
-		align="projects/{project}/star/con/{sample}/Aligned.sortedByCoord.out.bam",
+		align="projects/{project}/star/{sample_name}/Aligned.sortedByCoord.out.bam"
 	output:
-		"projects/{project}/star/con/{sample}/mapping_stats.txt"
-	shell:
-		"python2 scripts/report/mapping_stat.py {input.align} > {output}"
-
-
-rule clam_prep_ip:
-	input:
-		ip_align="projects/{project}/star/ip/{ip_sample}/Aligned.sortedByCoord.out.bam"
-	output:
-		"projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam"
+		"projects/{project}/clam/{sample_name}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/{sample_name}/unique.sorted.bam"
 	log:
-		"projects/{project}/logs/clam/{ip_sample}-prep.log"
+		"projects/{project}/logs/clam/{sample_name}-prep.log"
 	params:
-		outdir="projects/{project}/clam/ip/{ip_sample}",
+		outdir="projects/{project}/clam/{sample_name}",
 		tagger_method="median",
 		max_tags=MAX_TAGS
 	shell:
-		"CLAM preprocessor -i {input.ip_align} -o {params.outdir} --max-tags {params.max_tags} --read-tagger-method {params.tagger_method} >{log} 2>&1"
+		"CLAM preprocessor -i {input.align} -o {params.outdir} --max-tags {params.max_tags} --read-tagger-method {params.tagger_method} >{log} 2>&1"
 		
 
-rule clam_prep_con:		
+rule clam_em:
 	input:
-		con_align="projects/{project}/star/con/{con_sample}/Aligned.sortedByCoord.out.bam"
+		"projects/{project}/clam/{sample_name}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/{sample_name}/unique.sorted.bam"
 	output:
-		"projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam"
+		"projects/{project}/clam/{sample_name}/realigned.sorted.bam"
 	log:
-		"projects/{project}/logs/clam/{con_sample}-prep.log"
+		"projects/{project}/logs/clam/{sample_name}-em.log"
 	params:
-		outdir="projects/{project}/clam/con/{con_sample}",
-		tagger_method="median",
-		max_tags=MAX_TAGS
-	shell:
-		"CLAM preprocessor -i {input.con_align} -o {params.outdir} --max-tags {params.max_tags} --read-tagger-method {params.tagger_method} >{log} 2>&1"
-
-rule clam_em_ip:
-	input:
-		"projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam"
-	output:
-		"projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam"
-	log:
-		"projects/{project}/logs/clam/{ip_sample}-em.log"
-	params:
-		outdir="projects/{project}/clam/ip/{ip_sample}",
+		outdir="projects/{project}/clam/{sample_name}",
 		max_tags=MAX_TAGS,
 		winsize=100
 	shell:
 		"CLAM realigner -i {input} -o {params.outdir} --winsize {params.winsize} --max-tags {params.max_tags} --unstranded >{log} 2>&1"
 
-rule clam_em_con:
-	input:
-		"projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam"
-	output:
-		"projects/{project}/clam/con/{con_sample}/realigned.sorted.bam"
-	log:
-		"projects/{project}/logs/clam/{con_sample}-em.log"
-	params:
-		outdir="projects/{project}/clam/con/{con_sample}",
-		max_tags=MAX_TAGS,
-		winsize=100
-	shell:
-		"CLAM realigner -i {input} -o {params.outdir} --winsize {params.winsize} --max-tags {params.max_tags} --unstranded >{log} 2>&1"
-			
 
 ### peak calling
 
 rule clam_callpeak:
 	input:
-		ip_prep="projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam",
-		con_prep="projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam"
+		ip_prep="projects/{project}/clam/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/{ip_sample}/unique.sorted.bam",
+		con_prep="projects/{project}/clam/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/{con_sample}/unique.sorted.bam"
 	output:
 		"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.unique.bed"
 	log:
@@ -280,7 +256,7 @@ rule clam_callpeak:
 		outdir="projects/{project}/clam/peaks-{ip_sample}-{con_sample}",
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
-		qval_cutoff=0.1,
+		qval_cutoff=0.5,
 		fold_change='0.1',
 		threads=4
 		
@@ -299,11 +275,11 @@ rule clam_callpeak:
 rule clam_callpeak_mread:
 	input:		
 		ip_prep=[
-			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else "projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam", 
-			"projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam"],
+			"projects/{project}/clam/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else "projects/{project}/clam/{ip_sample}/unique.sorted.bam", 
+			"projects/{project}/clam/{ip_sample}/realigned.sorted.bam"],
 		con_prep=[
-			"projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else "projects/{project}/clam/con/{con_sample}/unique.sorted.bam", 
-			"projects/{project}/clam/con/{con_sample}/realigned.sorted.bam"]
+			"projects/{project}/clam/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else "projects/{project}/clam/{con_sample}/unique.sorted.bam", 
+			"projects/{project}/clam/{con_sample}/realigned.sorted.bam"]
 	output:
 		"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
 	log:
@@ -312,7 +288,7 @@ rule clam_callpeak_mread:
 		outdir="projects/{project}/clam/peaks-{ip_sample}-{con_sample}",
 		gtf=config[GENOME]['gtf'],
 		binsize=100,
-		qval_cutoff=0.1,
+		qval_cutoff=0.5,
 		fold_change='0.1',
 		threads=4
 	shell:
@@ -329,8 +305,8 @@ rule clam_callpeak_mread:
 
 rule macs2:
 	input:
-		ip="projects/{project}/star/ip/{ip_sample}/Aligned.sortedByCoord.out.bam",
-		con="projects/{project}/star/con/{con_sample}/Aligned.sortedByCoord.out.bam"
+		ip="projects/{project}/star/{ip_sample}/Aligned.sortedByCoord.out.bam",
+		con="projects/{project}/star/{con_sample}/Aligned.sortedByCoord.out.bam"
 	output:
 		"projects/{project}/macs2/{ip_sample}-{con_sample}/{ip_sample}-{con_sample}--nomodel_peaks.narrowPeak"
 	log:
@@ -525,18 +501,18 @@ rule topology_dist_macs2:
 rule make_bw:
 	input:
 		#"projects/{project}/clam/peaks-{ip_sample}-{con_sample}/narrow_peak.combined.bed"
-		"projects/{project}/clam/con/{con_sample}/realigned.sorted.bam",	
-		"projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam"	
+		"projects/{project}/clam/{con_sample}/realigned.sorted.bam",	
+		"projects/{project}/clam/{ip_sample}/realigned.sorted.bam"	
 	output:
 		"projects/{project}/bigwig/{ip_sample}-{con_sample}/foo.txt"
 	params:
-		ip_mbam="projects/{project}/clam/ip/{ip_sample}/realigned.sorted.bam",
-		ip_ubam="projects/{project}/clam/ip/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/ip/{ip_sample}/unique.sorted.bam",
+		ip_mbam="projects/{project}/clam/{ip_sample}/realigned.sorted.bam",
+		ip_ubam="projects/{project}/clam/{ip_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/{ip_sample}/unique.sorted.bam",
 		ip_bw_dir="projects/{project}/bigwig/{ip_sample}-{con_sample}/{ip_sample}/",
-		con_mbam="projects/{project}/clam/con/{con_sample}/realigned.sorted.bam",
-		con_ubam="projects/{project}/clam/con/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
-			"projects/{project}/clam/con/{con_sample}/unique.sorted.bam",
+		con_mbam="projects/{project}/clam/{con_sample}/realigned.sorted.bam",
+		con_ubam="projects/{project}/clam/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
+			"projects/{project}/clam/{con_sample}/unique.sorted.bam",
 		con_bw_dir="projects/{project}/bigwig/{ip_sample}-{con_sample}/{con_sample}/",
 		bw_script="scripts/make_bw/make_bigwig.py"
 	shell:
@@ -556,17 +532,11 @@ rule make_bw:
 
 rule report:
 	input:
-		# require ip mapping stats
-		[ "projects/{project}/star/ip/{sample}/mapping_stats.txt".format(
+		# require mapping stats
+		[ "projects/{project}/star/{sample}/mapping_stats.txt".format(
 			project=PROJECT, 
-			sample=x[0])
-			for x in COMPARISON_LIST
-		],
-		# require con mapping stats
-		[ "projects/{project}/star/con/{sample}/mapping_stats.txt".format(
-			project=PROJECT, 
-			sample=x[1])
-			for x in COMPARISON_LIST
+			sample=x)
+			for x in SAMPLE_TYPE_DICT
 		],
 		# require peak comparison
 		[ "projects/{project}/clam/peaks-{ip_sample}-{con_sample}/peak_num.png".format(
