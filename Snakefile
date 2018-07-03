@@ -524,7 +524,29 @@ rule make_bw:
 		echo "`date` done making bw" > {output}
 		"""
 
-
+rule make_peak_bb:
+	input:
+		unique_peak="projects/{project}/clam/peaks-{comparison}/narrow_peak.unique.bed",
+		combined_peak="projects/{project}/clam/peaks-{comparison}/narrow_peak.combined.bed"
+	output:
+		unique_peak_bb="projects/{project}/bigwig/peaks-{comparison}/unique_peak.bb",
+		combined_peak_bb="projects/{project}/bigwig/peaks-{comparison}/combined_peak.bb",
+	params:
+		outdir="projects/{project}/bigwig/peaks-{comparison}",
+		sorted_unique="projects/{project}/bigwig/peaks-{comparison}/unique.sorted.bed",
+		sorted_combined="projects/{project}/bigwig/peaks-{comparison}/combined.sorted.bed",
+		bedToBigBed="scripts/UCSC/bedToBigBed",
+		chrom_size="scripts/UCSC/%s.chrom.sizes"%GENOME,
+	shell:
+		"""
+mkdir -p {params.outdir}
+LC_ALL=c sort -k1,1 -k2,2n {input.unique_peak} > {params.sorted_unique}
+{params.bedToBigBed} -type=bed6+4 {params.sorted_unique} {params.chrom_size} {output.unique_peak_bb}
+rm {params.sorted_unique}
+LC_ALL=c sort -k1,1 -k2,2n {input.combined_peak} > {params.sorted_combined}
+{params.bedToBigBed} -type=bed6+4 {params.sorted_combined} {params.chrom_size} {output.combined_peak_bb}
+rm {params.sorted_combined}
+		"""
 
 
 ### generating reports and cleaning up
@@ -600,7 +622,7 @@ rule report:
 			ip_sample=x[0], 
 			con_sample=x[1] )
 			for x in COMPARISON_LIST
-		]
+		],
 	output:
 		"projects/{project}/reports/report_{project}.pdf".format(project=PROJECT)
 	params:
@@ -628,6 +650,13 @@ rule archive:
 				project=PROJECT,
 				ip_sample=x[0],
 				con_sample=x[1] )
+				for x in COMPARISON_LIST
+				],
+		peak_bb = [
+				"projects/{project}/bigwig/peaks-{comparison}/unique_peak.bb".format(
+				project=PROJECT,
+				comparison=x
+				)
 				for x in COMPARISON_LIST
 				],
 		report = "projects/{project}/reports/report_{project}.pdf".format(project=PROJECT),
