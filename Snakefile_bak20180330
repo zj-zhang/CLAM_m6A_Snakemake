@@ -662,7 +662,7 @@ rule report:
 	params:
 		out_html="projects/{project}/reports/report_{project}.html".format(project=PROJECT)
 	run:
-		from scripts.report import generate_report
+		from scripts.report import generate_report_old as generate_report
 		import pdfkit
 		pardir = os.getcwd()
 		generate_report.generate_report(COMPARISON_LIST, pardir, params.out_html, PROJECT, include_mread_analysis=INCLUDE_MREAD_ANALYSIS)
