@@ -71,7 +71,7 @@ def read_project_mapping_stats(ip_sample_list, con_sample_list, project_name):
 	tmp = []
 	for ip_sample in ip_sample_list:
 		this_dict = {'Sample': ip_sample, 'Type':'IP'}
-		with open(os.path.join('projects', project_name, 'star', 'ip', ip_sample, 'mapping_stats.txt'), 'r') as f:
+		with open(os.path.join('projects', project_name, 'star', ip_sample, 'mapping_stats.txt'), 'r') as f:
 			for line in f:
 				try:
 					key, val = line.strip().split('\t')
@@ -81,7 +81,7 @@ def read_project_mapping_stats(ip_sample_list, con_sample_list, project_name):
 		tmp.append(this_dict)
 	for con_sample in con_sample_list:
 		this_dict = {'Sample': con_sample, 'Type':'Con'}
-		with open(os.path.join('projects', project_name, 'star', 'con', con_sample, 'mapping_stats.txt'), 'r') as f:
+		with open(os.path.join('projects', project_name, 'star', con_sample, 'mapping_stats.txt'), 'r') as f:
 			for line in f:
 				try:
 					key, val = line.strip().split('\t')
