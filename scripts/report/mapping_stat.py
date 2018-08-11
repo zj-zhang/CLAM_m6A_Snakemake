@@ -42,7 +42,7 @@ def read_exon_reads(fn, read_len=None):
 		read_len = subprocess.check_output(cmd2, shell=True)
 		read_len = read_len.strip()
 	#cmd = '''samtools view -q 10 %s | awk '$6=="%sM"&&$0~"NH:i:1"' | wc -l'''%(fn,read_len)
-	cmd = '''samtools view -q 10 %s | $0~/NH:i:1\>/&&$6~"M"&&$6!~"N" | wc -l'''%(fn)
+	cmd = '''samtools view -q 10 %s | awk '$0~/NH:i:1\>/&&$6~"M"&&$6!~"N"' | wc -l'''%(fn)
 	#print >>sys.stderr, cmd
 	sj=subprocess.check_output(cmd, shell=True)
 	return sj.strip()
