@@ -36,4 +36,7 @@ p = ggplot(data, aes(x=coord, y=Peak_Tx_WithPeak, fill=NumPeak, colour=NumPeak))
 	annotate('text', label=c("3'UTR", "CDS", "5'UTR"), 
 		x=c( sep1/2, (sep1+sep2)/2, sep2+sep1/2 ), y=max(data[,2])*0.9)
 
-ggsave(file=plot_fn, plot=p, width=10, height=5)
+#ggsave(file=plot_fn, plot=p, width=10, height=5, units='in')  # NOT WORKING in the Anaconda R. ZZJ 8.11.2018
+png(plot_fn, width=500, height=250)
+p
+dev.off()
