@@ -110,6 +110,11 @@ rule all_mapping:
 		["projects/{project}/star/{sample_name}/Aligned.sortedByCoord.out.bam".format(project=PROJECT, sample_name=x) for x in SAMPLE_TYPE_DICT ]
 
 
+rule all_kallisto:
+	input:
+		["projects/{project}/kallisto/{sample_name}/abundance.tsv".format(project=PROJECT, sample_name=x) for x in SAMPLE_TYPE_DICT if SAMPLE_TYPE_DICT[x]=='con']
+
+
 rule all_clam:
 	input:
 		clam_peak = [
@@ -343,6 +348,28 @@ rule compare_peaks:
 		bedtools intersect -a {input.clam_mpeak} -b {input.macs2_peak} > {output.clam_macs2_peak}
 		Rscript {params.plot_script} {input.clam_mpeak} {input.clam_upeak} {input.macs2_peak} {output.plot_fn}
 		"""
+
+### gene expression
+
+rule kallisto_quant:
+	input:
+		"projects/{project}/reads/{sample_name}/foo.txt"
+	output:
+		"projects/{project}/kallisto/{sample_name}/abundance.tsv"
+	log:
+		"projects/{project}/logs/star/{sample_name}.log"
+	params:
+		reads= lambda wildcards: concat_star_fq(wildcards.sample_name),
+		outdir="projects/{project}/kallisto/{sample_name}/",
+		index = config[GENOME]['kallisto_idx']
+	threads: 4
+	shell:
+		"""
+kallisto quant -t {threads} -i {params.index} -o {params.outdir} {params.reads}
+		"""
+
+
+
 
 ### evaluations
 
