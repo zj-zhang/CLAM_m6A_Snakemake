@@ -3,6 +3,8 @@ Make softlink utils
 for current Snakefile
 ZZJ
 Doc 8.10.2018
+Usage:
+python2 make_ln_2.py /path/to/source_dir /path/to/target_dir [suffix]
 '''
 
 import os
