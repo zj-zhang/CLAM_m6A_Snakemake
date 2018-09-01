@@ -10,6 +10,7 @@ import sys
 
 ref_dir = os.path.realpath(sys.argv[1])
 tar_dir = os.path.realpath(sys.argv[2])
+suffix = sys.argv[3] if len(sys.argv)>3 else ''
 
 print "ref_dir="+ref_dir
 print "tar_dir="+tar_dir
@@ -29,6 +30,7 @@ for fn in os.listdir(ref_dir):
     new_fn_prefix = os.path.basename(new_fn).split('.')[0]
     foo_fn = os.path.join(tar_dir, new_fn_prefix, 'foo.txt')
     sub_dir = os.path.join(tar_dir, new_fn_prefix)
+    new_fn = new_fn.split('.')[0] + suffix +  '.' +  '.'.join(new_fn.split('.')[1:])
     tar = os.path.join(tar_dir, new_fn_prefix, new_fn)
     #print sub_dir
     if not os.path.isdir(sub_dir):

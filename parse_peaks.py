@@ -1,5 +1,8 @@
 '''
-read in peaks and compute t-statistic
+read in peaks and compute RPKM ratio
+as peak intensity, and find differential peaks
+passing ad hoc filters
+
 ZZJ
 8.27.2018
 '''
