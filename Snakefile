@@ -365,7 +365,7 @@ rule kallisto_quant:
 	threads: 4
 	shell:
 		"""
-kallisto quant -t {threads} -i {params.index} -o {params.outdir} {params.reads}
+kallisto quant -t {threads} -i {params.index} -o {params.outdir} --single -l 150 -s 10 {params.reads}
 		"""
 
 
@@ -541,13 +541,14 @@ rule make_bw:
 		con_ubam="projects/{project}/clam/{con_sample}/unique.sorted.collapsed.bam" if MAX_TAGS>0 else \
 			"projects/{project}/clam/{con_sample}/unique.sorted.bam",
 		con_bw_dir="projects/{project}/bigwig/{ip_sample}-{con_sample}/{con_sample}/",
-		bw_script="scripts/make_bw/make_bigwig.py"
+		bw_script="scripts/make_bw/make_bigwig.py",
+		genome=GENOME
 	shell:
 		"""
 		mkdir -p {params.ip_bw_dir}
 		mkdir -p {params.con_bw_dir}
-		python2 {params.bw_script} {params.ip_ubam} {params.ip_mbam} {params.ip_bw_dir}
-		python2 {params.bw_script} {params.con_ubam} {params.con_mbam} {params.con_bw_dir}
+		python2 {params.bw_script} {params.ip_ubam} {params.ip_mbam} {params.ip_bw_dir} {params.genome}
+		python2 {params.bw_script} {params.con_ubam} {params.con_mbam} {params.con_bw_dir} {params.genome}
 		echo "`date` done making bw" > {output}
 		"""
 
@@ -687,6 +688,11 @@ rule archive:
 				)
 				for x in COMPARISON_LIST
 				],
+		kallisto = [
+			"projects/{project}/kallisto/{sample_name}/abundance.tsv".format(project=PROJECT, sample_name=x) 
+			for x in SAMPLE_TYPE_DICT 
+			if SAMPLE_TYPE_DICT[x]=='con'
+			],
 		report = "projects/{project}/reports/report_{project}.pdf".format(project=PROJECT),
 	output:
 		"projects/{project}/archive/{project}.tar.gz".format(project=PROJECT)

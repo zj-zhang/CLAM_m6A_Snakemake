@@ -10,7 +10,8 @@ import sys
 import re
 from collections import defaultdict
 
-sra_script = 'scripts/geo_downloader/getSRApath.R'
+#sra_script = 'scripts/geo_downloader/getSRApath.R'
+sra_script = 'scripts/geo_downloader/getSRApath.py'
 
 
 def get_sra_path(gid):
@@ -24,7 +25,8 @@ def get_sra_path(gid):
 		os.mkdir(os.path.join('projects', gid, 'config'))
 	if not os.path.isfile(outfn):
 		print "\n------\nwait, connecting to GEO..\n"
-		os.system("Rscript {script} {gid} {outfn} >/dev/null 2>&1".format(script=sra_script, gid=gid, outfn=outfn))
+		#os.system("Rscript {script} {gid} {outfn} >/dev/null 2>&1".format(script=sra_script, gid=gid, outfn=outfn))
+		os.system("python2 {script} {gid} {outfn}".format(script=sra_script, gid=gid, outfn=outfn))
 	
 	sample_list = []
 	with open(outfn, 'r') as f:
@@ -56,6 +58,7 @@ def parse_sample_type_dict(sample_list, guess=True):
 	sample_type_dict = defaultdict(list)
 	if guess:
 		for sample in sample_list:
+			#if 'input' in sample.lower() or 'control' in sample.lower() or 'rna' in sample.lower():
 			if 'input' in sample.lower() or 'control' in sample.lower():
 				s += '    {0}: {1}\n'.format(sample, 'con')
 				sample_type_dict['con'].append(sample)
@@ -72,6 +75,9 @@ def parse_sample_type_dict(sample_list, guess=True):
 			return s, sample_type_dict
 		else:
 			break
+	sample_type_dict['ip'] = []
+	sample_type_dict['con'] = []
+	s = 'sample_type_dict:\n'
 	for sample in sample_list:
 		while True:
 			resp = raw_input('%s [ip/con]'%sample)
@@ -146,9 +152,11 @@ genome: hg19
 hg19:
     star_idx: /u/nobackup/yxing/NOBACKUP/frankwoe/hg19/star_idx_gencode_v19
     gtf: /u/nobackup/yxing/NOBACKUP/frankwoe/hg19/gencode.v19.annotation.gtf
+    kallisto_idx: /u/nobackup/yxing/NOBACKUP/frankwoe/hg19/kallisto_pctx_idx_gencodeV19/hg19_pc_tx_kal.idx
 mm10:
     star_idx: /u/nobackup/yxing/NOBACKUP/frankwoe/mm10/star_idx_gencodeM13
     gtf: /u/nobackup/yxing/NOBACKUP/frankwoe/mm10/gencode.vM13.annotation.gtf
+    kallisto_idx: /u/nobackup/yxing/NOBACKUP/frankwoe/mm10/mm10_kallisto_pctx_idx/mm10_pc_tx_kal_idx
 """
 	return s
 	
@@ -161,6 +169,7 @@ def configure(gid):
 	# split ip and con
 	print "***--- split ip and con ---***\n\n"
 	s1, sample_type_dict = parse_sample_type_dict(sample_list)
+	print sample_type_dict
 	s += s1
 	# enter comparisons
 	print "***--- enter comparisons ---***\n\n"
@@ -178,6 +187,9 @@ def configure(gid):
 	config_fp = os.path.join('projects', gid, 'config', 'config.yaml')
 	with open(config_fp, 'w') as f:
 		f.write(s)
+	os.mkdir(os.path.join('projects', gid, 'reads'))
+	for x in sample_list:
+		os.mkdir(os.path.join('projects', gid, 'reads', x) )
 
 	
 if __name__ == '__main__':
