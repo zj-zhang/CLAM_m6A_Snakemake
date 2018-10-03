@@ -21,7 +21,7 @@ import os
 import re
 
 ###**--- UTILITY FUNCTION ---**###
-def concat_star_fq(sample_name):
+def concat_star_fq(sample_name, for_kallisto=False):
 	fq1 = []
 	fq2 = []
 	par_dir = os.path.join('projects', PROJECT, 'reads')
@@ -38,9 +38,9 @@ def concat_star_fq(sample_name):
 	except:
 		raise Exception('concat_star_fq error')
 	if PAIRED_END:
-		s = ','.join(fq1) + ' ' + ','.join(fq2)
+		s = ' '.join([x1+' '+x2 for x1,x2 in zip(fq1, fq2)]) if for_kallisto else ','.join(fq1) + ' ' + ','.join(fq2)
 	else:
-		s = ','.join(fq1)
+		s = ' '.join(fq1) if for_kallisto else ','.join(fq1)
 	#print(fq1)
 	#print(s)
 	return s
@@ -359,7 +359,7 @@ rule kallisto_quant:
 	log:
 		"projects/{project}/logs/star/{sample_name}.log"
 	params:
-		reads= lambda wildcards: concat_star_fq(wildcards.sample_name),
+		reads= lambda wildcards: concat_star_fq(wildcards.sample_name, True),
 		outdir="projects/{project}/kallisto/{sample_name}/",
 		index = config[GENOME]['kallisto_idx']
 	threads: 4
@@ -552,6 +552,24 @@ rule make_bw:
 		echo "`date` done making bw" > {output}
 		"""
 
+
+rule merged_bw:
+	input:
+		group_bw_tracks = lambda wildcards: ["projects/{project}/bigwig/{ip_sample}-{con_sample}/foo.txt".format(project=PROJECT, ip_sample=x[0], con_sample=x[1]) for x in config['ucsc_tracks']['merge'][wildcards.group]]
+	output:
+		ip_bw="projects/{project}/bigwig_merge/{group}/{group}_IP.bw",
+		con_bw="projects/{project}/bigwig_merge/{group}/{group}_Input.bw",
+	params:
+		script="scripts/merge_bw/merge_bw.py",
+		genome_index=GENOME,
+		ip_group_bw_tracks = lambda wildcards: ["projects/{project}/bigwig/{ip_sample}-{con_sample}/{ip_sample}/unique_pos.bw".format(project=PROJECT, ip_sample=x[0], con_sample=x[1]) for x in config['ucsc_tracks']['merge'][wildcards.group]],
+		con_group_bw_tracks = lambda wildcards: ["projects/{project}/bigwig/{ip_sample}-{con_sample}/{con_sample}/unique_pos.bw".format(project=PROJECT, ip_sample=x[0], con_sample=x[1]) for x in config['ucsc_tracks']['merge'][wildcards.group]]
+	shell:
+		"""
+python {params.script} {output.ip_bw} {params.genome_index} {params.ip_group_bw_tracks}
+python {params.script} {output.con_bw} {params.genome_index} {params.con_group_bw_tracks}
+		"""
+
 rule make_peak_bb:
 	input:
 		unique_peak="projects/{project}/clam/peaks-{comparison}/narrow_peak.unique.bed",
@@ -688,6 +706,11 @@ rule archive:
 				)
 				for x in COMPARISON_LIST
 				],
+		# merged bigwig
+		merged_ip_bws = ["projects/{project}/bigwig_merge/{group}/{group}_IP.bw".format(project=PROJECT, group=x) \
+			for x in config['ucsc_tracks']['merge']],
+		merged_con_bws = ["projects/{project}/bigwig_merge/{group}/{group}_Input.bw".format(project=PROJECT, group=x) \
+			for x in config['ucsc_tracks']['merge']],
 		kallisto = [
 			"projects/{project}/kallisto/{sample_name}/abundance.tsv".format(project=PROJECT, sample_name=x) 
 			for x in SAMPLE_TYPE_DICT 
